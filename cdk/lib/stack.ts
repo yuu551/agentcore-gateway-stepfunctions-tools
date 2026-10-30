@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
 import * as cdk from "aws-cdk-lib";
 import * as agentcore from "aws-cdk-lib/aws-bedrockagentcore";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as sfn from "aws-cdk-lib/aws-stepfunctions";
+import * as cr from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
 
 const definition = (file: string) =>
@@ -19,17 +22,59 @@ export class SfnGatewayToolsStack extends cdk.Stack {
     const topic = new sns.Topic(this, "ApprovalTopic");
     topic.addSubscription(new subscriptions.EmailSubscription(this.node.getContext("email")));
 
+    // 承認ページのパスワード（Basic認証）
+    const password = new secretsmanager.Secret(this, "ApprovalPassword", {
+      generateSecretString: { passwordLength: 24, excludePunctuation: true },
+    });
+
     // メールのリンクから承認・却下を受け付ける
     const approval = new lambda.Function(this, "ApprovalFunction", {
       runtime: lambda.Runtime.PYTHON_3_14,
       handler: "approval.handler",
       code: lambda.Code.fromAsset(new URL("../lambda", import.meta.url).pathname),
+      environment: { PASSWORD_SECRET_ARN: password.secretArn },
     });
+    password.grantRead(approval);
     approval.addToRolePolicy(new iam.PolicyStatement({
       actions: ["states:SendTaskSuccess"],
       resources: ["*"], // タスクトークンの操作はリソースを指定できない
     }));
     const approvalUrl = approval.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
+
+    // 在庫テーブルと検証用の在庫データ
+    const stockTable = new dynamodb.TableV2(this, "StockTable", {
+      tableName: "sfn-gateway-tools-stock",
+      partitionKey: { name: "item", type: dynamodb.AttributeType.STRING },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    const stocks = [
+      { item: "牛乳", stock: 3, unitPrice: 180, dailySales: 40 },
+      { item: "卵", stock: 25, unitPrice: 240, dailySales: 30 },
+      { item: "米5kg", stock: 2, unitPrice: 2980, dailySales: 8 },
+    ];
+    new cr.AwsCustomResource(this, "SeedStocks", {
+      onCreate: {
+        service: "DynamoDB",
+        action: "batchWriteItem",
+        parameters: {
+          RequestItems: {
+            "sfn-gateway-tools-stock": stocks.map((stock) => ({
+              PutRequest: {
+                Item: {
+                  item: { S: stock.item },
+                  stock: { N: String(stock.stock) },
+                  unitPrice: { N: String(stock.unitPrice) },
+                  dailySales: { N: String(stock.dailySales) },
+                },
+              },
+            })),
+          },
+        },
+        physicalResourceId: cr.PhysicalResourceId.of("seed-stocks"),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: [stockTable.tableArn] }),
+      installLatestAwsSdk: false,
+    }).node.addDependency(stockTable);
 
     // 発注（Standard）と在庫照会（Express）のステートマシン
     const order = new sfn.StateMachine(this, "PurchaseOrderWorkflow", {
@@ -41,8 +86,10 @@ export class SfnGatewayToolsStack extends cdk.Stack {
     const stock = new sfn.StateMachine(this, "StockLookupExpress", {
       stateMachineName: "StockLookupExpress",
       definitionBody: definition("stock-lookup.asl.json"),
+      definitionSubstitutions: { TABLE_NAME: stockTable.tableName },
       stateMachineType: sfn.StateMachineType.EXPRESS,
     });
+    stockTable.grantReadData(stock);
 
     // IAM認証のGateway（サービスロールはCDKが作る）
     const gateway = new agentcore.Gateway(this, "Gateway", {
@@ -88,5 +135,6 @@ export class SfnGatewayToolsStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "GatewayUrl", { value: gateway.gatewayUrl! });
     new cdk.CfnOutput(this, "StockArn", { value: stock.stateMachineArn });
+    new cdk.CfnOutput(this, "PasswordSecretArn", { value: password.secretArn });
   }
 }

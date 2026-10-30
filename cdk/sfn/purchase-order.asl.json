@@ -25,6 +25,7 @@
     "WaitForApproval": {
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish.waitForTaskToken",
+      "TimeoutSeconds": 86400,
       "Arguments": {
         "TopicArn": "${TOPIC_ARN}",
         "Subject": "Purchase order approval request",

@@ -2,19 +2,19 @@
 
 Amazon Bedrock AgentCore Gateway の Step Functions コネクタを使い、スーパーの発注業務を題材にしたワークフローを Strands Agents から呼び出すサンプルです。
 
-- 在庫照会ワークフロー（Express）を `StartSyncExecution` で呼び出す
+- 在庫照会ワークフロー（Express）を `StartSyncExecution` で呼び出し、DynamoDB の在庫テーブルを `GetItem` で読む
 - 発注ワークフロー（Standard）を `StartExecution` で開始し、`DescribeExecution`・`GetExecutionHistory` で状況を確認する
 - 合計が3万円を超える発注は、SNS で店長にメールを送って承認を待つ（`.waitForTaskToken`）
-- 店長がメールのリンクから承認すると、Lambda が `SendTaskSuccess` でワークフローを再開させる
+- 店長がメールのリンクから承認すると、Lambda が `SendTaskSuccess` でワークフローを再開させる（承認ページは Basic 認証、承認待ちは24時間で期限切れ）
 
 > [!WARNING]
-> 検証用のサンプルです。承認ページ（Lambda 関数 URL）には認証を付けていないので、本番では使わないでください。検証が終わったら `cdk destroy` で削除してください。
+> 検証用のサンプルです。承認ページ（Lambda 関数 URL）には簡易的な Basic 認証しか付けていないので、本番では使わないでください。検証が終わったら `cdk destroy` で削除してください。
 
 ## 構成
 
 | パス | 内容 |
 | --- | --- |
-| `cdk/` | SNS・承認用 Lambda・ステートマシン・Gateway・ターゲットを作る CDK アプリ |
+| `cdk/` | DynamoDB・SNS・承認用 Lambda・ステートマシン・Gateway・ターゲットを作る CDK アプリ |
 | `cdk/sfn/` | ステートマシンの定義（JSONata） |
 | `cdk/lambda/approval.py` | 承認ページと `SendTaskSuccess` の呼び出し |
 | `gateway_tools.py` | Gateway への接続と、入力の日本語をエスケープするフック |
@@ -39,7 +39,12 @@ cd ..
 jq -r '.SfnGatewayToolsStack | "GATEWAY_URL=\(.GatewayUrl)\nSTOCK_ARN=\(.StockArn)"' cdk/outputs.json > .env
 ```
 
-デプロイ後に届く「Subscription Confirmation」のメールで Confirm subscription を押します。
+デプロイ後に届く「Subscription Confirmation」のメールで Confirm subscription を押します。承認ページのパスワードは次のコマンドで取得できます（ユーザー名は任意）。
+
+```bash
+aws secretsmanager get-secret-value --secret-id "$(jq -r .SfnGatewayToolsStack.PasswordSecretArn cdk/outputs.json)" \
+  --query SecretString --output text
+```
 
 ```bash
 # エージェントを動かす
