@@ -6,6 +6,7 @@ Amazon Bedrock AgentCore Gateway の Step Functions コネクタを使い、ス�
 - 発注ワークフロー（Standard）を `StartExecution` で開始し、`DescribeExecution`・`GetExecutionHistory` で状況を確認する
 - 合計が3万円を超える発注は、SNS で店長にメールを送って承認を待つ（`.waitForTaskToken`）
 - 店長がメールのリンクから承認すると、Lambda が `SendTaskSuccess` でワークフローを再開させる（承認ページは Basic 認証、承認待ちは24時間で期限切れ）
+- Gateway に Policy Engine（Cedar）を付け、発注の取り消し（`order___StopExecution`）を店長のロール `sfn-gateway-tools-manager` だけに許可する
 
 > [!WARNING]
 > 検証用のサンプルです。承認ページ（Lambda 関数 URL）には簡易的な Basic 認証しか付けていないので、本番では使わないでください。検証が終わったら `cdk destroy` で削除してください。
@@ -14,7 +15,7 @@ Amazon Bedrock AgentCore Gateway の Step Functions コネクタを使い、ス�
 
 | パス | 内容 |
 | --- | --- |
-| `cdk/` | DynamoDB・SNS・承認用 Lambda・ステートマシン・Gateway・ターゲットを作る CDK アプリ |
+| `cdk/` | DynamoDB・SNS・承認用 Lambda・ステートマシン・Gateway・ターゲット・Cedar のポリシーを作る CDK アプリ |
 | `cdk/sfn/` | ステートマシンの定義（JSONata） |
 | `cdk/lambda/approval.py` | 承認ページと `SendTaskSuccess` の呼び出し |
 | `gateway_tools.py` | Gateway への接続と、入力の日本語をエスケープするフック |

@@ -92,9 +92,13 @@ export class SfnGatewayToolsStack extends cdk.Stack {
     stockTable.grantReadData(stock);
 
     // IAM認証のGateway（サービスロールはCDKが作る）
+    const policyEngine = new agentcore.PolicyEngine(this, "PolicyEngine", {
+      policyEngineName: "sfn_tools_policy_engine",
+    });
     const gateway = new agentcore.Gateway(this, "Gateway", {
       gatewayName: "sfn-tools-gateway",
       authorizerConfiguration: agentcore.GatewayAuthorizer.usingAwsIam(),
+      policyEngineConfiguration: { policyEngine, mode: agentcore.PolicyEngineMode.ENFORCE },
     });
     // サービスロールの権限を公開するステートマシンと実行に絞る
     const executionArn = cdk.Arn.format(
@@ -121,7 +125,7 @@ export class SfnGatewayToolsStack extends cdk.Stack {
         credentialProviderConfigurations: [{ credentialProviderType: "GATEWAY_IAM_ROLE" }],
       });
 
-    connectorTarget("order", [
+    const orderTarget = connectorTarget("order", [
       { name: "StartExecution", parameterValues: { stateMachineArn: order.stateMachineArn } },
       { name: "ListExecutions", parameterValues: { stateMachineArn: order.stateMachineArn } },
       { name: "DescribeStateMachine", parameterValues: { stateMachineArn: order.stateMachineArn } },
@@ -133,6 +137,28 @@ export class SfnGatewayToolsStack extends cdk.Stack {
       { name: "StartSyncExecution", parameterValues: { stateMachineArn: stock.stateMachineArn } },
     ]);
 
+    // 店長のロール（発注の取り消しは店長だけに許可する）
+    const managerRole = new iam.Role(this, "ManagerRole", {
+      roleName: "sfn-gateway-tools-manager",
+      assumedBy: new iam.AccountRootPrincipal(),
+    });
+    gateway.grantInvoke(managerRole);
+
+    // Cedarのポリシー
+    const gatewayEntity = `AgentCore::Gateway::"${gateway.gatewayArn}"`;
+    const cedar = (id: string, statement: string, ignoreFindings = false) =>
+      new agentcore.Policy(this, id, {
+        policyEngine,
+        statement: agentcore.PolicyStatement.fromCedar(statement),
+        validationMode: ignoreFindings ? agentcore.PolicyValidationMode.IGNORE_ALL_FINDINGS : undefined,
+      });
+    // Cedarはデフォルト拒否なので、このGatewayのツールをIAMの呼び出し元に許可しておく
+    cedar("AllowGatewayTools", `permit(principal is AgentCore::IamEntity, action, resource == ${gatewayEntity});`, true);
+    // 発注の取り消しは店長のロールだけ（ポリシーはツールと突き合わせて検証されるので、ターゲットの後に作る）
+    cedar("OnlyManagerCanStop", `forbid(principal is AgentCore::IamEntity, action == AgentCore::Action::"order___StopExecution", resource == ${gatewayEntity})
+      unless { principal.id like "*sfn-gateway-tools-manager*" };`).node.addDependency(orderTarget);
+
+    new cdk.CfnOutput(this, "ManagerRoleArn", { value: managerRole.roleArn });
     new cdk.CfnOutput(this, "GatewayUrl", { value: gateway.gatewayUrl! });
     new cdk.CfnOutput(this, "StockArn", { value: stock.stateMachineArn });
     new cdk.CfnOutput(this, "PasswordSecretArn", { value: password.secretArn });
