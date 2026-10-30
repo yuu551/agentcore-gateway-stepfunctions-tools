@@ -25,7 +25,7 @@ Amazon Bedrock AgentCore Gateway の Step Functions コネクタを使い、ス�
 
 - Node.js 26 と pnpm 12（`mise install` で `mise.toml` の版が入ります）
 - Python 3.15 と uv
-- us-east-1 で Amazon Bedrock の Claude Sonnet 5.5 を使える AWS 認証情報
+- us-east-1 で Amazon Bedrock の Claude Haiku 5.5 を使える AWS 認証情報
 - CDK のブートストラップ済みの環境
 
 ## 使い方

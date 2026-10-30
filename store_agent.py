@@ -12,7 +12,7 @@ SYSTEM_PROMPT = """あなたはスーパーの発注担当です。
 """
 
 agent = Agent(
-    model="us.anthropic.claude-sonnet-5-5",
+    model="us.anthropic.claude-haiku-5-5",
     tools=[gateway_client(r"^(stock|order)___")],
     system_prompt=SYSTEM_PROMPT,
 )
