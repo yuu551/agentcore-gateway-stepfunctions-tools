@@ -1,0 +1,23 @@
+{
+  "Comment": "在庫照会ワークフロー",
+  "QueryLanguage": "JSONata",
+  "StartAt": "LoadStocks",
+  "States": {
+    "LoadStocks": {
+      "Type": "Pass",
+      "Assign": {
+        "stocks": {
+          "牛乳": { "stock": 3, "unitPrice": 180, "dailySales": 40 },
+          "卵": { "stock": 25, "unitPrice": 240, "dailySales": 30 },
+          "米5kg": { "stock": 2, "unitPrice": 2980, "dailySales": 8 }
+        }
+      },
+      "Next": "Lookup"
+    },
+    "Lookup": {
+      "Type": "Pass",
+      "Output": "{% $exists($lookup($stocks, $states.input.item)) ? $merge([{'item': $states.input.item}, $lookup($stocks, $states.input.item)]) : {'item': $states.input.item, 'status': 'NOT_FOUND'} %}",
+      "End": true
+    }
+  }
+}

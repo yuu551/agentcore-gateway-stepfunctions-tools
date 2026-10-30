@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[oc]
+.venv/
+
+# Node.js / CDK
+node_modules/
+cdk.out/
+outputs.json
+
+# 環境ごとの値
+.env

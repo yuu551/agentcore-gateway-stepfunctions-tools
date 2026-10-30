@@ -1,0 +1,62 @@
+{
+  "Comment": "発注ワークフロー",
+  "QueryLanguage": "JSONata",
+  "StartAt": "CheckOrder",
+  "States": {
+    "CheckOrder": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.quantity <= 0 %}",
+          "Next": "InvalidOrder"
+        },
+        {
+          "Condition": "{% $states.input.quantity * $states.input.unitPrice > 30000 %}",
+          "Next": "WaitForApproval"
+        }
+      ],
+      "Default": "PlaceOrder"
+    },
+    "InvalidOrder": {
+      "Type": "Fail",
+      "Error": "InvalidQuantity",
+      "Cause": "発注数は1以上で指定してください"
+    },
+    "WaitForApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish.waitForTaskToken",
+      "Arguments": {
+        "TopicArn": "${TOPIC_ARN}",
+        "Subject": "Purchase order approval request",
+        "Message": "{% '発注の承認をお願いします。\n\n商品: ' & $states.input.item & '\n数量: ' & $states.input.quantity & '\n合計: ' & $states.input.quantity * $states.input.unitPrice & '円\n理由: ' & $states.input.reason & '\n\n承認・却下はこちらから\n' & '${APPROVAL_URL}?token=' & $encodeUrlComponent($states.context.Task.Token) %}"
+      },
+      "Output": "{% $merge([$states.input, {'approval': $states.result}]) %}",
+      "Next": "IsApproved"
+    },
+    "IsApproved": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.approval.approved = true %}",
+          "Next": "PlaceOrder"
+        }
+      ],
+      "Default": "Rejected"
+    },
+    "Rejected": {
+      "Type": "Fail",
+      "Error": "Rejected",
+      "Cause": "店長に却下されました"
+    },
+    "PlaceOrder": {
+      "Type": "Pass",
+      "Output": {
+        "item": "{% $states.input.item %}",
+        "quantity": "{% $states.input.quantity %}",
+        "total": "{% $states.input.quantity * $states.input.unitPrice %}",
+        "status": "ORDERED"
+      },
+      "End": true
+    }
+  }
+}
